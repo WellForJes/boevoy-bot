@@ -13,19 +13,26 @@ load_dotenv()
 api_key = os.getenv("BINANCE_API_KEY")
 api_secret = os.getenv("BINANCE_API_SECRET")
 
+print("✅ Боевой бот стартовал!")
+print("🔐 API_KEY (первые символы):", api_key[:5], "...")
+print("🔐 API_SECRET (первые символы):", api_secret[:5], "...")
+
 client = Client(api_key, api_secret)
 client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
 
 # Получаем точности округления для каждой монеты
 symbol_precisions = {}
-exchange_info = client.futures_exchange_info()
-for symbol_info in exchange_info['symbols']:
-    symbol = symbol_info['symbol']
-    for f in symbol_info['filters']:
-        if f['filterType'] == 'LOT_SIZE':
-            step_size = float(f['stepSize'])
-            precision = int(round(-math.log(step_size, 10), 0))
-            symbol_precisions[symbol] = precision
+try:
+    exchange_info = client.futures_exchange_info()
+    for symbol_info in exchange_info['symbols']:
+        symbol = symbol_info['symbol']
+        for f in symbol_info['filters']:
+            if f['filterType'] == 'LOT_SIZE':
+                step_size = float(f['stepSize'])
+                precision = int(round(-math.log(step_size, 10), 0))
+                symbol_precisions[symbol] = precision
+except Exception as e:
+    print("❌ Ошибка при получении информации о бирже:", e)
 
 symbols = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT",
@@ -38,6 +45,8 @@ LIMIT = 100
 
 def analyze_and_trade(symbol):
     try:
+        print(f"▶️ Начинаю анализ: {symbol}")
+
         open_orders = client.futures_get_open_orders(symbol=symbol)
         tp_orders = [o for o in open_orders if o['type'] == "TAKE_PROFIT_MARKET"]
         sl_orders = [o for o in open_orders if o['type'] == "STOP_MARKET"]
@@ -45,14 +54,12 @@ def analyze_and_trade(symbol):
         positions = client.futures_position_information(symbol=symbol)
         position = next((p for p in positions if float(p['positionAmt']) != 0), None)
 
-        # 🔍 Нет позиции, но TP/SL остались — очищаем
         if position is None and (tp_orders or sl_orders):
             for o in open_orders:
                 client.futures_cancel_order(symbol=symbol, orderId=o['orderId'])
             print(f"🧹 {symbol}: Позиции нет, но TP/SL были — всё очищено")
             return
 
-        # ✅ Позиция открыта
         if position:
             entry_price = float(position['entryPrice'])
             side = 'LONG' if float(position['positionAmt']) > 0 else 'SHORT'
@@ -114,7 +121,6 @@ def analyze_and_trade(symbol):
                 print(f"⏸ {symbol}: Позиция уже открыта, TP/SL в порядке")
             return
 
-        # 📈 Нет позиции — анализ на вход
         klines = client.futures_klines(symbol=symbol, interval=INTERVAL, limit=LIMIT)
         df = pd.DataFrame(klines, columns=[
             "timestamp", "open", "high", "low", "close", "volume",
@@ -202,7 +208,7 @@ def analyze_and_trade(symbol):
             print(f"{symbol}: Условия не выполнены")
 
     except Exception as e:
-        print(f"Ошибка для {symbol}: {e}")
+        print(f"❌ Ошибка при анализе {symbol}: {type(e).__name__} — {e}")
 
 
 def log_pnl():
