@@ -241,7 +241,7 @@ while True:
         analyze_and_trade(symbol)
         time.sleep(1)
 
-    if int(time.time()) - last_telegram_report_time >= 900:
+    if int(time.time()) - last_telegram_report_time >= 300:
         send_status_to_telegram()
         last_telegram_report_time = int(time.time())
 
