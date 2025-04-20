@@ -2,25 +2,46 @@ import os
 import time
 import math
 import csv
+import requests
 import pandas as pd
+import pytz
 from datetime import datetime, timedelta
 from binance.client import Client
 from ta.momentum import RSIIndicator
 from ta.trend import EMAIndicator, ADXIndicator
 from dotenv import load_dotenv
 
+# === Telegram параметры ===
+TELEGRAM_TOKEN = "7797995733:AAENKe8raT-UB0f98JEd5lEh93fvr2wED5o"
+TELEGRAM_CHAT_ID = "349999939"
+last_telegram_report_time = 0  # для отслеживания интервала отправки
+
+def send_status_to_telegram():
+    try:
+        tz = pytz.timezone("Europe/Kyiv")
+        now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+        message = f"\U0001F7E2 Боевой Бот работает. Последний цикл: {now} (Kyiv)"
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
+        response = requests.post(url, data=payload)
+        if response.status_code != 200:
+            print(f"\u26A0\uFE0F Ошибка отправки Telegram: {response.text}")
+        else:
+            print(f"\U0001F4E8 Статус отправлен в Telegram ({now})")
+    except Exception as e:
+        print(f"\u274C Ошибка Telegram-отчёта: {e}")
+
 load_dotenv()
 api_key = os.getenv("BINANCE_API_KEY")
 api_secret = os.getenv("BINANCE_API_SECRET")
 
-print("✅ Боевой бот стартовал!")
-print("🔐 API_KEY (первые символы):", api_key[:5], "...")
-print("🔐 API_SECRET (первые символы):", api_secret[:5], "...")
+print("\u2705 Боевой бот стартовал!")
+print("\U0001F512 API_KEY (первые символы):", api_key[:5], "...")
+print("\U0001F512 API_SECRET (первые символы):", api_secret[:5], "...")
 
 client = Client(api_key, api_secret)
 client.FUTURES_URL = 'https://testnet.binancefuture.com/fapi'
 
-# Получаем точности округления для каждой монеты
 symbol_precisions = {}
 try:
     exchange_info = client.futures_exchange_info()
@@ -32,7 +53,7 @@ try:
                 precision = int(round(-math.log(step_size, 10), 0))
                 symbol_precisions[symbol] = precision
 except Exception as e:
-    print("❌ Ошибка при получении информации о бирже:", e)
+    print("\u274C Ошибка при получении информации о бирже:", e)
 
 symbols = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "AVAXUSDT",
@@ -45,7 +66,7 @@ LIMIT = 100
 
 def analyze_and_trade(symbol):
     try:
-        print(f"▶️ Начинаю анализ: {symbol}")
+        print(f"\u25B6\uFE0F Начинаю анализ: {symbol}")
 
         open_orders = client.futures_get_open_orders(symbol=symbol)
         tp_orders = [o for o in open_orders if o['type'] == "TAKE_PROFIT_MARKET"]
@@ -57,7 +78,7 @@ def analyze_and_trade(symbol):
         if position is None and (tp_orders or sl_orders):
             for o in open_orders:
                 client.futures_cancel_order(symbol=symbol, orderId=o['orderId'])
-            print(f"🧹 {symbol}: Позиции нет, но TP/SL были — всё очищено")
+            print(f"\U0001F9F9 {symbol}: Позиции нет, но TP/SL были — всё очищено")
             return
 
         if position:
@@ -67,7 +88,7 @@ def analyze_and_trade(symbol):
             if len(tp_orders) + len(sl_orders) > 2:
                 for o in open_orders:
                     client.futures_cancel_order(symbol=symbol, orderId=o['orderId'])
-                print(f"❌ {symbol}: Найдено дублирование TP/SL, всё очищено")
+                print(f"\u274C {symbol}: Найдено дублирование TP/SL, всё очищено")
 
             elif len(tp_orders) == 0 or len(sl_orders) == 0:
                 for o in open_orders:
@@ -94,7 +115,7 @@ def analyze_and_trade(symbol):
                         timeInForce='GTC',
                         workingType='MARK_PRICE'
                     )
-                    print(f"🔁 {symbol}: TP/SL восстановлены для LONG")
+                    print(f"\U0001F501 {symbol}: TP/SL восстановлены для LONG")
                 else:
                     stop_loss = round(entry_price * 1.01, 2)
                     take_profit = round(entry_price * 0.95, 2)
@@ -116,9 +137,9 @@ def analyze_and_trade(symbol):
                         timeInForce='GTC',
                         workingType='MARK_PRICE'
                     )
-                    print(f"🔁 {symbol}: TP/SL восстановлены для SHORT")
+                    print(f"\U0001F501 {symbol}: TP/SL восстановлены для SHORT")
             else:
-                print(f"⏸ {symbol}: Позиция уже открыта, TP/SL в порядке")
+                print(f"\u23F8 {symbol}: Позиция уже открыта, TP/SL в порядке")
             return
 
         klines = client.futures_klines(symbol=symbol, interval=INTERVAL, limit=LIMIT)
@@ -173,7 +194,7 @@ def analyze_and_trade(symbol):
                 timeInForce='GTC',
                 workingType='MARK_PRICE'
             )
-            print(f"✅ {symbol} | ЛОНГ | Цена: {price} | Qty: {qty} | TP: {take_profit} | SL: {stop_loss}")
+            print(f"\u2705 {symbol} | ЛОНГ | Цена: {price} | Qty: {qty} | TP: {take_profit} | SL: {stop_loss}")
 
         elif adx < 25 and price >= high * 0.99 and rsi > 60 and price > ema20 > ema50:
             stop_loss = round(price * 1.01, 2)
@@ -202,47 +223,26 @@ def analyze_and_trade(symbol):
                 timeInForce='GTC',
                 workingType='MARK_PRICE'
             )
-            print(f"✅ {symbol} | ШОРТ | Цена: {price} | Qty: {qty} | TP: {take_profit} | SL: {stop_loss}")
+            print(f"\u2705 {symbol} | ШОРТ | Цена: {price} | Qty: {qty} | TP: {take_profit} | SL: {stop_loss}")
 
         else:
             print(f"{symbol}: Условия не выполнены")
 
     except Exception as e:
-        print(f"❌ Ошибка при анализе {symbol}: {type(e).__name__} — {e}")
-
-
-def log_pnl():
-    try:
-        start_time = int((datetime.now() - timedelta(minutes=15)).timestamp() * 1000)
-        income = client.futures_income_history(startTime=start_time, incomeType="REALIZED_PNL")
-        if not income:
-            print("📭 Нет новых закрытых позиций")
-            return
-        
-        total_pnl = 0
-        file_exists = os.path.isfile("pnl_log.csv")
-        with open("pnl_log.csv", mode="a", newline='') as file:
-            writer = csv.writer(file)
-            if not file_exists:
-                writer.writerow(["Time", "Symbol", "PnL"])
-            for record in income:
-                ts = datetime.fromtimestamp(record['time'] / 1000).strftime('%Y-%m-%d %H:%M:%S')
-                symbol = record['symbol']
-                pnl = float(record['income'])
-                total_pnl += pnl
-                writer.writerow([ts, symbol, pnl])
-                print(f"💸 {symbol} | PnL: {pnl:.2f} USDT")
-        
-        print(f"\n💰 Общий результат за 15 мин: {round(total_pnl, 2)} USDT")
-
-    except Exception as e:
-        print(f"❌ Ошибка при логировании PnL: {e}")
+        print(f"\u274C Ошибка при анализе {symbol}: {type(e).__name__} — {e}")
 
 
 while True:
-    print(f"\n🕒 Анализ монет ({datetime.now().strftime('%H:%M:%S')}):")
+    tz = pytz.timezone("Europe/Kyiv")
+    now = datetime.now(tz).strftime("%H:%M:%S")
+    print(f"\n\U0001F552 Анализ монет ({now}):")
+
     for symbol in symbols:
         analyze_and_trade(symbol)
         time.sleep(1)
-    log_pnl()
+
+    if int(time.time()) - last_telegram_report_time >= 900:
+        send_status_to_telegram()
+        last_telegram_report_time = int(time.time())
+
     time.sleep(60)
